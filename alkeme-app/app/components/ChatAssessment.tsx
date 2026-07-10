@@ -118,6 +118,24 @@ async function handleSubscribe(priceId: string | undefined) {
     return
   }
 
+  // Guardar (o actualizar) el plan del usuario ANTES de ir a Stripe
+  if (planData) {
+    const { error: planError } = await supabase
+      .from('recovery_plans')
+      .upsert({
+        user_id: session.user.id,
+        area: planData.area,
+        goal: goal,
+        summary: planData.summary,
+        exercise_ids: planData.exerciseIds || [],
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id' })
+
+    if (planError) {
+      console.error('Error guardando el plan:', planError.message)
+    }
+  }
+
   // Logged in — proceed to Stripe checkout with their user info
   const res = await fetch('/api/stripe/checkout', {
     method: 'POST',

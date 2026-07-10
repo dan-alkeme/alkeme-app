@@ -3,14 +3,35 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { Home, Dumbbell, Video, Apple, LineChart } from 'lucide-react'
 
 const TABS = [
-  { id: 'home',      label: 'Home',      title: 'Welcome Back',       tagline: '' },
-  { id: 'plan',      label: 'Plan',      title: 'My Recovery Plan',   tagline: 'Your personalized exercise program' },
-  { id: 'videos',    label: 'Videos',    title: 'Video Library',      tagline: 'Guided exercise videos for your plan' },
-  { id: 'nutrition', label: 'Nutrition', title: 'Nutrition Guidance', tagline: 'Meal recommendations for your goals' },
-  { id: 'progress',  label: 'Progress',  title: 'Progress Tracking',  tagline: 'Track your recovery journey' },
+  { id: 'home',      label: 'Home',      title: 'Welcome Back',       tagline: '',                                    Icon: Home },
+  { id: 'plan',      label: 'Plan',      title: 'My Recovery Plan',   tagline: 'Your personalized exercise program',  Icon: Dumbbell },
+  { id: 'videos',    label: 'Videos',    title: 'Video Library',      tagline: 'Guided exercise videos for your plan', Icon: Video },
+  { id: 'nutrition', label: 'Nutrition', title: 'Nutrition Guidance', tagline: 'Meal recommendations for your goals',  Icon: Apple },
+  { id: 'progress',  label: 'Progress',  title: 'Progress Tracking',  tagline: 'Track your recovery journey',          Icon: LineChart },
 ] as const
+
+// Orden progresivo de fases (igual al del assessment)
+const PHASE_ORDER: Record<string, number> = {
+  'Joint Mobility': 1,
+  'Flexibility': 2,
+  'Rehab Strength - Phase 1': 3,
+  'Rehab Strength - Phase 2': 4,
+  'Rehab Strength - Phase 3': 5,
+  'Rehab Strength - Phase 4': 6,
+  'Balance & Proprioception': 7,
+  'Trunk & Spine Stability': 8
+}
+
+type PlanExercise = {
+  id: string
+  name: string
+  phase: string | null
+  target_muscle: string | null
+  youtube_url: string | null
+}
 
 export default function DashboardPage() {
   const [email, setEmail] = useState('')
@@ -22,6 +43,13 @@ export default function DashboardPage() {
   const [minTime, setMinTime] = useState(false)
   const [splashGone, setSplashGone] = useState(false)
   const [logoIn, setLogoIn] = useState(false)
+
+  // Tab "My Recovery Plan"
+  const [planState, setPlanState] =
+    useState<'idle' | 'loading' | 'loaded' | 'empty' | 'error'>('idle')
+  const [planExercises, setPlanExercises] = useState<PlanExercise[]>([])
+  const [planSummary, setPlanSummary] = useState('')
+  const [planArea, setPlanArea] = useState('')
 
   const router = useRouter()
 
@@ -60,12 +88,72 @@ export default function DashboardPage() {
     }
   }, [ready])
 
+  // Cargar el plan del usuario la primera vez que abre el tab "Plan"
+  useEffect(() => {
+    if (activeTab === 'plan' && planState === 'idle') {
+      loadPlan()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
+  async function loadPlan() {
+    setPlanState('loading')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setPlanState('empty'); return }
+
+      // 1. El plan guardado del usuario
+      const { data: plan, error: planErr } = await supabase
+        .from('recovery_plans')
+        .select('area, summary, exercise_ids')
+        .eq('user_id', session.user.id)
+        .maybeSingle()
+
+      if (planErr) { console.error('Plan error:', planErr.message); setPlanState('error'); return }
+
+      const ids: string[] = (plan?.exercise_ids as string[]) || []
+      if (!plan || ids.length === 0) { setPlanState('empty'); return }
+
+      setPlanSummary(plan.summary || '')
+      setPlanArea(plan.area || '')
+
+      // 2. Traer esos ejercicios de la biblioteca
+      const { data: exercises, error: exErr } = await supabase
+        .from('exercises')
+        .select('id, name, phase, target_muscle, youtube_url')
+        .in('id', ids)
+
+      if (exErr) { console.error('Exercises error:', exErr.message); setPlanState('error'); return }
+
+      // 3. Ordenar por fase progresiva
+      const sorted = [...(exercises || [])].sort(
+        (a, b) => (PHASE_ORDER[a.phase || ''] || 99) - (PHASE_ORDER[b.phase || ''] || 99)
+      )
+
+      setPlanExercises(sorted as PlanExercise[])
+      setPlanState('loaded')
+    } catch (e) {
+      console.error(e)
+      setPlanState('error')
+    }
+  }
+
   async function handleLogout() {
     await supabase.auth.signOut()
     router.push('/')
   }
 
   const current = TABS.find(t => t.id === activeTab)!
+
+  // Agrupar los ejercicios por fase (ya vienen ordenados)
+  const withVideo = planExercises.filter(e => e.youtube_url).length
+  const phaseGroups: { phase: string; items: PlanExercise[] }[] = []
+  for (const ex of planExercises) {
+    const phaseName = ex.phase || 'Additional Exercises'
+    let g = phaseGroups.find(x => x.phase === phaseName)
+    if (!g) { g = { phase: phaseName, items: [] }; phaseGroups.push(g) }
+    g.items.push(ex)
+  }
 
   return (
     <div className='min-h-screen bg-[#0A0A0A]'>
@@ -127,9 +215,11 @@ export default function DashboardPage() {
       ) : (
         /* ---------- VISTA ACTIVE: app con tabs ---------- */
         <>
-          <div className='max-w-4xl mx-auto px-6 py-12 pb-28'>
+          <div className='max-w-4xl mx-auto px-6 pt-12'
+            style={{ paddingBottom: 'calc(120px + env(safe-area-inset-bottom))' }}>
 
             {activeTab === 'home' ? (
+              /* ===== HOME ===== */
               <>
                 <p className='text-[#C9A84C] text-xs tracking-[0.3em] font-semibold mb-3 uppercase'>
                   Your Dashboard
@@ -146,18 +236,111 @@ export default function DashboardPage() {
                       className='bg-[#111] border border-[#1A1A1A] hover:border-[#C9A84C]/30
                         rounded-xl p-6 text-left transition-all group'>
                       <div className='flex items-start justify-between'>
-                        <h3 className='font-[Barlow_Condensed] text-xl font-bold text-white mb-2'>
+                        <h3 style={{ color: '#FFFFFF' }}
+                          className='font-[Barlow_Condensed] text-xl font-bold mb-2'>
                           {card.title}
                         </h3>
                         <span className='text-[#C9A84C] opacity-0 group-hover:opacity-100
                           transition-opacity'>→</span>
                       </div>
-                      <p className='text-white text-sm'>{card.tagline}.</p>
+                      <p style={{ color: '#CCCCCC' }} className='text-sm'>{card.tagline}.</p>
                     </button>
                   ))}
                 </div>
               </>
+            ) : activeTab === 'plan' ? (
+              /* ===== MY RECOVERY PLAN ===== */
+              <>
+                <p className='text-[#C9A84C] text-xs tracking-[0.3em] font-semibold mb-3 uppercase'>
+                  My Recovery Plan
+                </p>
+                <h1 className='font-[Barlow_Condensed] text-4xl font-bold text-white mb-3'>
+                  {planArea ? `YOUR ${planArea.toUpperCase()} PLAN` : 'YOUR RECOVERY PLAN'}
+                </h1>
+
+                {planState === 'loading' && (
+                  <div className='flex justify-center py-16'>
+                    <div className='flex gap-1.5'>
+                      {[0, 150, 300].map(d => (
+                        <span key={d} className='w-2 h-2 bg-[#C9A84C] rounded-full animate-bounce'
+                          style={{ animationDelay: `${d}ms` }} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {planState === 'error' && (
+                  <div className='text-center py-16'>
+                    <p className='text-[#888] mb-4'>We couldn&apos;t load your plan.</p>
+                    <button onClick={loadPlan}
+                      className='bg-[#C9A84C] hover:bg-[#E8C96A] text-black font-bold text-sm
+                        px-5 py-2.5 rounded-lg transition-colors'>
+                      Try again
+                    </button>
+                  </div>
+                )}
+
+                {planState === 'empty' && (
+                  <div className='text-center py-16'>
+                    <p className='text-[#888] max-w-sm mx-auto leading-relaxed'>
+                      You don&apos;t have a recovery plan yet. Complete your assessment
+                      to generate your personalized plan.
+                    </p>
+                  </div>
+                )}
+
+                {planState === 'loaded' && (
+                  <>
+                    {planSummary && (
+                      <p className='text-[#A0A0A0] text-sm leading-relaxed mb-4 max-w-xl'>
+                        {planSummary}
+                      </p>
+                    )}
+                    <p className='text-[#555] text-xs uppercase tracking-wider mb-8'>
+                      {planExercises.length} exercises · {withVideo} with video
+                    </p>
+
+                    {phaseGroups.map(group => (
+                      <div key={group.phase} className='mb-8'>
+                        <div className='mb-3'>
+                          <h3 className='font-[Barlow_Condensed] text-2xl font-bold text-white'>
+                            {group.phase}
+                          </h3>
+                          <div className='w-8 h-0.5 bg-[#C9A84C] rounded-full mt-1' />
+                        </div>
+                        <div className='space-y-2'>
+                          {group.items.map(ex => (
+                            <div key={ex.id}
+                              className='bg-[#111] border border-[#1A1A1A] rounded-xl p-4
+                                flex items-center justify-between gap-3'>
+                              <div className='min-w-0'>
+                                <p className='text-white font-semibold text-sm'>{ex.name}</p>
+                                {ex.target_muscle && (
+                                  <p className='text-[#888] text-xs mt-0.5'>{ex.target_muscle}</p>
+                                )}
+                              </div>
+                              {ex.youtube_url ? (
+                                <a href={ex.youtube_url} target='_blank' rel='noopener noreferrer'
+                                  className='shrink-0 bg-[#C9A84C] hover:bg-[#E8C96A] text-black
+                                    text-xs font-bold px-3 py-2 rounded-lg transition-colors
+                                    whitespace-nowrap'>
+                                  Watch video
+                                </a>
+                              ) : (
+                                <span className='shrink-0 text-[#555] text-xs italic whitespace-nowrap'>
+                                  Video coming soon
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </>
             ) : (
+              /* ===== OTROS TABS (Videos, Nutrition, Progress) — placeholder ===== */
               <div className='min-h-[55vh] flex flex-col items-center justify-center text-center'>
                 <p className='text-[#C9A84C] text-xs tracking-[0.3em] font-semibold mb-3 uppercase'>
                   {current.label}
@@ -176,23 +359,29 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Barra de tabs inferior (pulida, resaltado del activo) */}
-          <div className='fixed bottom-0 left-0 right-0 bg-[#0D0D0D]/95 backdrop-blur-sm
-            border-t border-[#1A1A1A] z-50'>
-            <div className='max-w-4xl mx-auto grid grid-cols-5 py-2.5'>
+          {/* Barra de tabs inferior — sólida, a todo el ancho, botones grandes */}
+          <div
+            style={{
+              position: 'fixed', left: 0, right: 0, bottom: 0, width: '100%',
+              backgroundColor: '#161616', borderTop: '1px solid #2A2A2A',
+              boxShadow: '0 -6px 24px rgba(0,0,0,0.6)', zIndex: 50,
+              paddingBottom: 'env(safe-area-inset-bottom)'
+            }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', width: '100%' }}>
               {TABS.map(tab => {
                 const isActive = activeTab === tab.id
+                const Icon = tab.Icon
                 return (
                   <button key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className='flex items-center justify-center py-1'>
-                    <span className={`font-[Barlow_Condensed] font-bold whitespace-nowrap
-                      text-[11px] sm:text-sm tracking-wide uppercase rounded-full
-                      px-2.5 py-1.5 transition-all duration-200 ${
-                      isActive
-                        ? 'text-[#C9A84C] bg-[#C9A84C]/10'
-                        : 'text-[#666] hover:text-[#999]'
+                    style={{ width: '100%' }}
+                    className={`flex flex-col items-center justify-center gap-1.5 py-4
+                      transition-colors ${
+                      isActive ? 'text-[#C9A84C]' : 'text-[#666] hover:text-[#999]'
                     }`}>
+                    <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />
+                    <span className='font-[Barlow_Condensed] font-bold text-[11px] sm:text-xs
+                      tracking-wide uppercase'>
                       {tab.label}
                     </span>
                   </button>
