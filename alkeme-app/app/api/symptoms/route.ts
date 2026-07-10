@@ -4,48 +4,60 @@ import { NextResponse } from 'next/server'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+const CHAT_TO_DB: Record<string, string> = {
+  'Knee': 'Knee',
+  'Shoulder': 'Shoulder',
+  'Lower Back': 'Lower Back',
+  'Hip': 'Hip',
+  'Ankle / Foot': 'Ankle / Foot',
+  'Elbow': 'Elbow',
+  'Neck': 'Neck',
+  'Wrist / Hand': 'Wrist / Hand',
+  'Core & Spine': 'Core & Spine',
+  'Full Body': 'Core & Spine'
+}
+
 export async function POST(request: Request) {
   try {
-    const { area, painType, intensity, duration } = await request.json()
+    const { area, goal, duration, aiAnswer } = await request.json()
 
+    const category = CHAT_TO_DB[area] || 'Core & Spine'
+
+    // Count exercises + phases available for this category
     const { data: exercises } = await supabase
       .from('exercises')
-      .select('id, name, category, youtube_url')
+      .select('phase')
+      .eq('category', category)
 
+    const totalExercises = exercises?.length || 0
+    const phases = Array.from(
+      new Set((exercises || []).map(e => e.phase).filter(Boolean))
+    )
+
+    // Ask Claude for a short personalized plan summary
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      max_tokens: 200,
       messages: [{
         role: 'user',
-        content: `You are an expert physical therapist at Alkeme Sports Rx.
-A patient has the following symptoms:
-- Affected area: ${area}
-- Pain type: ${painType}
-- Intensity (1-10): ${intensity}
-- Duration: ${duration}
+        content: `You are a physical therapist at Alkeme Sports Rx.
+A patient wants to work on their ${area}. Their goal is "${goal}", they have been dealing with this for "${duration}", and they added: "${aiAnswer}".
 
-From this list of available exercises:
-${JSON.stringify(exercises)}
-
-Select the 5 most appropriate exercises for this patient.
-YOU MUST respond with ONLY a raw JSON array of exercise ids, no markdown, no backticks, no explanation.
-Example: ["id1","id2","id3","id4","id5"]`
+Write ONE short, motivating sentence (max 25 words) summarizing what their recovery program will focus on. Speak directly to them ("your program will..."). No greeting, just the sentence.`
       }]
     })
 
-    const responseText = message.content[0].type === 'text'
-      ? message.content[0].text.trim() : '[]'
+    const summary = message.content[0].type === 'text'
+      ? message.content[0].text.trim()
+      : `Your program will focus on rebuilding strength and mobility in your ${area}.`
 
-    // Strip markdown code fences if Claude includes them
-    const clean = responseText
-      .replace(/```json/gi, '')
-      .replace(/```/g, '')
-      .trim()
-
-    const selectedIds = JSON.parse(clean)
-    const selected = exercises?.filter(e => selectedIds.includes(e.id)) || []
-
-    return NextResponse.json({ exercises: selected })
+    return NextResponse.json({
+      area,
+      category,
+      totalExercises,
+      phaseCount: phases.length,
+      summary
+    })
 
   } catch (error) {
     console.error('API error:', error)

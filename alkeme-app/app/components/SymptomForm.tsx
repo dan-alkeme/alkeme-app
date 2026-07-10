@@ -48,31 +48,33 @@ export default function SymptomForm({ onBack }: { onBack: () => void }) {
   const [exercises, setExercises] = useState<any[]>([])
   const [animating, setAnimating] = useState(false)
   const [error, setError] = useState('')
+  const [freeVideo, setFreeVideo] = useState<any>(null)
 
   function nextStep() {
     setAnimating(true)
     setTimeout(() => { setStep(prev => prev + 1); setAnimating(false) }, 300)
   }
 
-  async function handleSubmit() {
-    setLoading(true)
-    setError('')
-    try {
-      const res = await fetch('/api/symptoms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ area, painType, intensity, duration })
-      })
-      if (!res.ok) throw new Error('API error')
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setExercises(data.exercises)
-      setStep(5)
-    } catch (err) {
-      setError('Something went wrong. Please try again.')
-    }
-    setLoading(false)
+async function handleSubmit() {
+  setLoading(true)
+  setError('')
+  try {
+    const res = await fetch('/api/symptoms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ area, painType, intensity, duration })
+    })
+    if (!res.ok) throw new Error('API error')
+    const data = await res.json()
+    if (data.error) throw new Error(data.error)
+    setExercises(data.paidExercises || [])
+    setFreeVideo(data.freeVideo || null)
+    setStep(5)
+  } catch (err) {
+    setError('Something went wrong. Please try again.')
   }
+  setLoading(false)
+}
 
   function reset() {
     setStep(0); setArea(''); setPainType('')
@@ -253,110 +255,110 @@ export default function SymptomForm({ onBack }: { onBack: () => void }) {
         )}
 
         {/* Results */}
-        {step === 5 && (
-          <div>
-            <h2 className='font-[Barlow_Condensed] text-4xl font-bold text-white mb-2'>
-              YOUR DAY 1 PLAN
-            </h2>
-            <p className='text-[#A0A0A0] mb-6'>
-              Based on your{' '}
-              <span className='text-[#C9A84C]'>{area}</span>{' '}
-              symptoms, here are your personalized exercises.
-            </p>
-            <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>
-              {exercises.map((ex: any, i: number) => {
-                const videoId = getYouTubeId(ex.youtube_url)
-                if (i === 2) return (
-                  <div key='paywall'
-                    className='col-span-2 md:col-span-3 bg-[#141414] border
-                      border-[#C9A84C]/30 rounded-xl p-6 text-center'>
-                    <p className='text-[#C9A84C] text-xs tracking-widest font-semibold mb-2'>
-                      FULL PLAN LOCKED
-                    </p>
-                    <h3 className='font-[Barlow_Condensed] text-2xl font-bold text-white mb-1'>
-                      {exercises.length - 2} more exercises in your plan
-                    </h3>
-                    <p className='text-[#666] text-sm mb-4'>
-                      Subscribe to unlock your complete recovery program
-                    </p>
-                    <button
-                      onClick={async () => {
-                        const res = await fetch('/api/stripe/checkout', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_ID
-                          })
-                        })
-                        const { url } = await res.json()
-                        if (url) window.location.href = url
-                      }}
-                      className='bg-[#C9A84C] text-black font-[Barlow_Condensed] font-bold
-                        text-lg px-8 py-3 rounded-lg hover:bg-[#E8C96A] transition-all
-                        hover:shadow-[0_0_20px_rgba(201,168,76,0.3)]'>
-                      UNLOCK FOR $29/MO
-                    </button>
-                  </div>
-                )
-                if (i > 2) return null
-                return (
-                  <div key={ex.id}
-                    className='bg-[#141414] border border-[#1A1A1A] hover:border-[#C9A84C]/40
-                      rounded-xl overflow-hidden transition-all group flex flex-col'>
-                    {/* Thumbnail */}
-                    <div className='relative aspect-video bg-[#0D0D0D] overflow-hidden'>
-                      {videoId ? (
-                        <img
-                          src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
-                          alt={ex.name}
-                          className='w-full h-full object-cover group-hover:scale-105
-                            transition-transform duration-300'
-                        />
-                      ) : (
-                        <div className='w-full h-full flex items-center justify-center'>
-                          <span className='text-[#333] text-4xl'>▶</span>
-                        </div>
-                      )}
-                      {/* Hover play overlay */}
-                      <div className='absolute inset-0 bg-black/40 opacity-0
-                        group-hover:opacity-100 transition-opacity flex items-center justify-center'>
-                        <div className='w-14 h-14 bg-[#C9A84C] rounded-full flex
-                          items-center justify-center shadow-lg'>
-                          <span className='text-black text-xl ml-1'>▶</span>
-                        </div>
-                      </div>
-                      {/* Number badge */}
-                      <div className='absolute top-2 left-2 w-7 h-7 bg-[#C9A84C]
-                        rounded-full flex items-center justify-center shadow'>
-                        <span className='text-black text-xs font-bold'>{i + 1}</span>
-                      </div>
-                    </div>
-                    {/* Info */}
-                    <div className='p-3 flex flex-col flex-1'>
-                      <p className='font-semibold text-white text-sm leading-tight mb-1'>
-                        {ex.name}
-                      </p>
-                      <p className='text-[#555] text-xs mb-3'>{ex.category}</p>
-                      <a href={ex.youtube_url} target='_blank'
-                        className='mt-auto w-full bg-[#C9A84C] hover:bg-[#E8C96A] text-black
-                          font-bold text-sm py-2.5 rounded-lg transition-all text-center
-                          hover:shadow-[0_0_15px_rgba(201,168,76,0.4)]
-                          flex items-center justify-center gap-2'>
-                        ▶ PLAY VIDEO
-                      </a>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <button onClick={reset}
-              className='mt-8 w-full py-3 border border-[#C9A84C]/30 text-[#C9A84C]
-                font-[Barlow_Condensed] font-bold rounded-lg hover:bg-[#C9A84C]/10
-                transition-all'>
-              START OVER
-            </button>
+{step === 5 && (
+  <div>
+    <h2 className='font-[Barlow_Condensed] text-4xl font-bold text-white mb-2'>
+      YOUR DAY 1 PLAN
+    </h2>
+    <p className='text-[#E8E8E8] mb-8'>
+      Based on your{' '}
+      <span className='text-[#C9A84C]'>{area}</span>{' '}
+      symptoms, here is your personalized exercise.
+    </p>
+
+    {/* Free video */}
+    {freeVideo && (() => {
+      const videoId = getYouTubeId(freeVideo.youtube_url)
+      return (
+        <div className='mb-6'>
+          <div className='flex items-center gap-2 mb-3'>
+            <span className='bg-[#C9A84C] text-black text-xs font-bold
+              px-3 py-1 rounded-full tracking-wider'>
+              🎁 YOUR FREE EXERCISE
+            </span>
+            <span className='text-[#555] text-xs'>{freeVideo.category}</span>
           </div>
-        )}
+          <div className='bg-[#141414] border border-[#C9A84C]/40 rounded-xl
+            overflow-hidden group'>
+            <div className='relative aspect-video overflow-hidden'>
+              {videoId ? (
+                <img
+                  src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
+                  alt={freeVideo.name}
+                  className='w-full h-full object-cover group-hover:scale-105
+                    transition-transform duration-300'
+                />
+              ) : (
+                <div className='w-full h-full flex items-center justify-center
+                  bg-[#0D0D0D]'>
+                  <span className='text-[#333] text-5xl'>▶</span>
+                </div>
+              )}
+              <div className='absolute inset-0 bg-black/40 opacity-0
+                group-hover:opacity-100 transition-opacity flex items-center
+                justify-center'>
+                <div className='w-16 h-16 bg-[#C9A84C] rounded-full flex
+                  items-center justify-center shadow-lg'>
+                  <span className='text-black text-2xl ml-1'>▶</span>
+                </div>
+              </div>
+            </div>
+            <div className='p-4'>
+              <p className='font-bold text-white text-lg mb-1'>{freeVideo.name}</p>
+              <a href={freeVideo.youtube_url} target='_blank'
+                className='inline-flex items-center gap-2 bg-[#C9A84C]
+                  hover:bg-[#E8C96A] text-black font-bold px-6 py-3 rounded-lg
+                  transition-all hover:shadow-[0_0_20px_rgba(201,168,76,0.4)]
+                  font-[Barlow_Condensed] text-lg tracking-wide'>
+                ▶ PLAY VIDEO
+              </a>
+            </div>
+          </div>
+        </div>
+      )
+    })()}
+
+    {/* Paywall */}
+    <div className='bg-[#141414] border border-[#C9A84C]/30 rounded-xl p-6 text-center'>
+      <div className='text-3xl mb-3'>🔒</div>
+      <p className='text-[#C9A84C] text-xs tracking-widest font-semibold mb-2'>
+        FULL PLAN LOCKED
+      </p>
+      <h3 className='font-[Barlow_Condensed] text-2xl font-bold text-white mb-2'>
+        {exercises.length} more exercises in your plan
+      </h3>
+      <p className='text-[#666] text-sm mb-6 max-w-xs mx-auto'>
+        Subscribe to unlock your complete personalized recovery program
+        and access all future exercises as we expand the library.
+      </p>
+      <button
+        onClick={async () => {
+          const res = await fetch('/api/stripe/checkout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              priceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_ID
+            })
+          })
+          const { url } = await res.json()
+          if (url) window.location.href = url
+        }}
+        className='bg-[#C9A84C] text-black font-[Barlow_Condensed] font-bold
+          text-xl px-10 py-4 rounded-lg hover:bg-[#E8C96A] transition-all
+          hover:shadow-[0_0_25px_rgba(201,168,76,0.4)]'>
+        UNLOCK FOR $29/MO
+      </button>
+      <p className='text-[#333] text-xs mt-3'>Cancel anytime</p>
+    </div>
+
+    <button onClick={reset}
+      className='mt-6 w-full py-3 border border-[#C9A84C]/30 text-[#C9A84C]
+        font-[Barlow_Condensed] font-bold rounded-lg hover:bg-[#C9A84C]/10
+        transition-all'>
+      START OVER
+    </button>
+  </div>
+)}
       </div>
     </div>
   )

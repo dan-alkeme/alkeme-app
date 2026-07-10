@@ -123,6 +123,14 @@ export default function HeroScreen({ onStart }: HeroScreenProps) {
           px-12 py-4 rounded-lg tracking-wider transition-all duration-300
           hover:scale-105 hover:shadow-[0_0_30px_rgba(201,168,76,0.4)]
           font-[Barlow_Condensed]'>
+            {/* Free exercise motivator */}
+<div className='flex items-center justify-center gap-2 mb-4 px-4 py-2.5
+  bg-[#C9A84C]/10 border border-[#C9A84C]/30 rounded-full'>
+  <span className='text-lg'>🎁</span>
+  <p className='text-[#C9A84C] text-sm font-semibold'>
+    Get your first personalized exercise FREE — no credit card required
+  </p>
+</div>
         START MY ASSESSMENT →
       </button>
 
