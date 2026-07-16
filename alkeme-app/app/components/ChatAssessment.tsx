@@ -246,11 +246,11 @@ async function handleSubscribe(priceId: string | undefined) {
       hover:bg-[#E8C96A] transition-all group'>
     <span className='absolute top-3 right-3 bg-black text-[#C9A84C]
       text-xs font-bold px-2 py-1 rounded-full'>BEST VALUE</span>
-    <p className='text-black font-[Barlow_Condensed] font-bold text-2xl'>
+    <p style={{ color: '#FFFFFF' }} className='font-[Barlow_Condensed] font-bold text-2xl'>
       $149.99
-      <span className='text-black/60 text-sm font-normal'> / 3 months</span>
+      <span style={{ color: 'rgba(255,255,255,0.75)' }} className='text-sm font-normal'> / 3 months</span>
     </p>
-    <p className='text-black/70 text-sm mt-1'>
+    <p style={{ color: '#FFFFFF' }} className='text-sm mt-1'>
       Save 33% — just $50/month billed quarterly
     </p>
   </button>
@@ -260,11 +260,11 @@ async function handleSubscribe(priceId: string | undefined) {
     onClick={() => handleSubscribe(process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY)}
     className='w-full bg-[#141414] border border-[#2A2A2A] rounded-xl p-5
       text-left hover:border-[#C9A84C]/50 transition-all'>
-    <p className='text-white font-[Barlow_Condensed] font-bold text-2xl'>
+    <p style={{ color: '#FFFFFF' }} className='font-[Barlow_Condensed] font-bold text-2xl'>
       $74.99
-      <span className='text-[#555] text-sm font-normal'> / month</span>
+      <span style={{ color: 'rgba(255,255,255,0.75)' }} className='text-sm font-normal'> / month</span>
     </p>
-    <p className='text-[#555] text-sm mt-1'>
+    <p style={{ color: '#FFFFFF' }} className='text-sm mt-1'>
       Billed monthly — cancel anytime
     </p>
   </button>

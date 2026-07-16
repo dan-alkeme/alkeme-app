@@ -3,7 +3,8 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Home, Dumbbell, Video, Apple, LineChart } from 'lucide-react'
+import { Home, Dumbbell, Video, Apple, LineChart, Play } from 'lucide-react'
+import ProgressTab from '../components/ProgressTab'
 
 const TABS = [
   { id: 'home',      label: 'Home',      title: 'Welcome Back',       tagline: '',                                    Icon: Home },
@@ -33,6 +34,22 @@ type PlanExercise = {
   youtube_url: string | null
 }
 
+// Sacar el ID de YouTube de cualquier formato (shorts, youtu.be, watch?v=)
+function getYouTubeId(url: string | null): string | null {
+  if (!url) return null
+  const patterns = [
+    /shorts\/([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /embed\/([A-Za-z0-9_-]{11})/
+  ]
+  for (const p of patterns) {
+    const m = url.match(p)
+    if (m) return m[1]
+  }
+  return null
+}
+
 export default function DashboardPage() {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<'active' | 'free'>('free')
@@ -50,6 +67,9 @@ export default function DashboardPage() {
   const [planExercises, setPlanExercises] = useState<PlanExercise[]>([])
   const [planSummary, setPlanSummary] = useState('')
   const [planArea, setPlanArea] = useState('')
+
+  // Tab "Video Library" — filtro por fase
+  const [videoPhase, setVideoPhase] = useState('all')
 
   const router = useRouter()
 
@@ -88,9 +108,9 @@ export default function DashboardPage() {
     }
   }, [ready])
 
-  // Cargar el plan del usuario la primera vez que abre el tab "Plan"
+  // Cargar el plan la primera vez que abre el tab "Plan" o "Videos"
   useEffect(() => {
-    if (activeTab === 'plan' && planState === 'idle') {
+    if ((activeTab === 'plan' || activeTab === 'videos') && planState === 'idle') {
       loadPlan()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,6 +174,12 @@ export default function DashboardPage() {
     if (!g) { g = { phase: phaseName, items: [] }; phaseGroups.push(g) }
     g.items.push(ex)
   }
+
+  // Fases presentes en el plan (para los botones de filtro del Video Library)
+  const videoPhases = phaseGroups.map(g => g.phase)
+  const filteredVideos = videoPhase === 'all'
+    ? planExercises
+    : planExercises.filter(e => (e.phase || 'Additional Exercises') === videoPhase)
 
   return (
     <div className='min-h-screen bg-[#0A0A0A]'>
@@ -339,8 +365,142 @@ export default function DashboardPage() {
                   </>
                 )}
               </>
+            ) : activeTab === 'videos' ? (
+              /* ===== VIDEO LIBRARY ===== */
+              <>
+                <p className='text-[#C9A84C] text-xs tracking-[0.3em] font-semibold mb-3 uppercase'>
+                  Video Library
+                </p>
+                <h1 className='font-[Barlow_Condensed] text-4xl font-bold text-white mb-6'>
+                  YOUR EXERCISE VIDEOS
+                </h1>
+
+                {planState === 'loading' && (
+                  <div className='flex justify-center py-16'>
+                    <div className='flex gap-1.5'>
+                      {[0, 150, 300].map(d => (
+                        <span key={d} className='w-2 h-2 bg-[#C9A84C] rounded-full animate-bounce'
+                          style={{ animationDelay: `${d}ms` }} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {planState === 'error' && (
+                  <div className='text-center py-16'>
+                    <p className='text-[#888] mb-4'>We couldn&apos;t load your videos.</p>
+                    <button onClick={loadPlan}
+                      className='bg-[#C9A84C] hover:bg-[#E8C96A] text-black font-bold text-sm
+                        px-5 py-2.5 rounded-lg transition-colors'>
+                      Try again
+                    </button>
+                  </div>
+                )}
+
+                {planState === 'empty' && (
+                  <div className='text-center py-16'>
+                    <p className='text-[#888] max-w-sm mx-auto leading-relaxed'>
+                      You don&apos;t have a plan yet. Complete your assessment to unlock
+                      your exercise videos.
+                    </p>
+                  </div>
+                )}
+
+                {planState === 'loaded' && (
+                  <>
+                    {/* Filtro por fase */}
+                    <div className='flex flex-wrap gap-2 mb-6'>
+                      <button onClick={() => setVideoPhase('all')}
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+                          videoPhase === 'all'
+                            ? 'bg-[#C9A84C] border-[#C9A84C] text-black'
+                            : 'border-[#2A2A2A] text-[#999] hover:border-[#C9A84C]/50'
+                        }`}>
+                        All phases
+                      </button>
+                      {videoPhases.map(ph => (
+                        <button key={ph} onClick={() => setVideoPhase(ph)}
+                          className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+                            videoPhase === ph
+                              ? 'bg-[#C9A84C] border-[#C9A84C] text-black'
+                              : 'border-[#2A2A2A] text-[#999] hover:border-[#C9A84C]/50'
+                          }`}>
+                          {ph}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Cuadrícula de videos */}
+                    <div className='grid grid-cols-2 md:grid-cols-3 gap-3'>
+                      {filteredVideos.map(ex => {
+                        const ytId = getYouTubeId(ex.youtube_url)
+                        const thumb = ytId
+                          ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`
+                          : null
+
+                        const Card = (
+                          <div className='bg-[#111] border border-[#1A1A1A] rounded-xl overflow-hidden
+                            h-full flex flex-col group-hover:border-[#C9A84C]/40 transition-colors'>
+                            {/* Miniatura */}
+                            <div className='relative aspect-video bg-[#0A0A0A] flex items-center
+                              justify-center overflow-hidden'>
+                              {thumb ? (
+                                <>
+                                  <img src={thumb} alt={ex.name}
+                                    className='w-full h-full object-cover' />
+                                  <div className='absolute inset-0 flex items-center justify-center
+                                    bg-black/20 group-hover:bg-black/40 transition-colors'>
+                                    <div className='w-10 h-10 rounded-full bg-[#C9A84C] flex items-center
+                                      justify-center shadow-lg'>
+                                      <Play size={18} className='text-black ml-0.5' fill='black' />
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className='flex flex-col items-center justify-center text-center px-2'>
+                                  <Video size={22} className='text-[#333] mb-1.5' />
+                                  <span className='text-[#555] text-[10px] uppercase tracking-widest'>
+                                    Coming soon
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            {/* Info */}
+                            <div className='p-3 flex-1'>
+                              <p className='text-white text-xs font-semibold leading-snug line-clamp-2'>
+                                {ex.name}
+                              </p>
+                              {ex.target_muscle && (
+                                <p className='text-[#666] text-[10px] mt-1'>{ex.target_muscle}</p>
+                              )}
+                            </div>
+                          </div>
+                        )
+
+                        return ex.youtube_url ? (
+                          <a key={ex.id} href={ex.youtube_url} target='_blank'
+                            rel='noopener noreferrer' className='group block'>
+                            {Card}
+                          </a>
+                        ) : (
+                          <div key={ex.id} className='group'>{Card}</div>
+                        )
+                      })}
+                    </div>
+
+                    {filteredVideos.length === 0 && (
+                      <p className='text-[#555] text-sm text-center py-12'>
+                        No exercises in this phase.
+                      </p>
+                    )}
+                  </>
+                )}
+              </>
+            ) : activeTab === 'progress' ? (
+              /* ===== PROGRESS ===== */
+              <ProgressTab />
             ) : (
-              /* ===== OTROS TABS (Videos, Nutrition, Progress) — placeholder ===== */
+              /* ===== NUTRITION — placeholder ===== */
               <div className='min-h-[55vh] flex flex-col items-center justify-center text-center'>
                 <p className='text-[#C9A84C] text-xs tracking-[0.3em] font-semibold mb-3 uppercase'>
                   {current.label}
