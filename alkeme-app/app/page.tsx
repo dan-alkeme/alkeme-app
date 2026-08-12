@@ -1,6 +1,8 @@
 'use client'
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
+import Reveal from './components/Reveal'
 import { supabase } from '@/lib/supabase'
 
 const STATS = [
@@ -117,45 +119,63 @@ export default function LandingPage() {
         </div>
       )}
 
-      {/* TOP BAR — Auth */}
-      <div className='fixed top-0 right-0 z-50 flex items-center gap-3 px-6 py-4'>
+     {/* TOP BAR — Auth */}
+      <div className='fixed top-4 right-4 sm:top-5 sm:right-5 z-[60]'>
         {isLoggedIn ? (
           <Link href='/dashboard'
-            className='bg-[#C9A84C] hover:bg-[#E8C96A] text-black font-[Barlow_Condensed]
-              font-bold text-sm px-4 py-2 rounded-lg transition-all tracking-wide'>
+            className='inline-block bg-[#C9A84C] hover:bg-[#E8C96A] text-black
+              font-[Barlow_Condensed] font-bold text-xs px-4 py-2 rounded-full
+              tracking-wide transition-all'>
             DASHBOARD
           </Link>
         ) : (
-          <>
+          <div className='flex items-center gap-1.5 bg-[#111]/20 backdrop-blur-md
+            border border-white/10 rounded-full p-1'>
             <Link href='/auth/login'
-              className='text-[#A0A0A0] hover:text-white text-sm font-semibold
-                transition-colors px-3 py-2'>
+              className='text-[#D0D0D0] hover:text-white text-xs font-semibold
+                px-3.5 py-1.5 rounded-full hover:bg-white/5 transition-colors'>
               Sign In
             </Link>
             <Link href='/auth/signup'
-              className='bg-[#C9A84C] hover:bg-[#E8C96A] text-black font-[Barlow_Condensed]
-                font-bold text-sm px-4 py-2 rounded-lg transition-all tracking-wide'>
+              className='bg-[#C9A84C] hover:bg-[#E8C96A] text-black
+                font-[Barlow_Condensed] font-bold text-xs px-3.5 py-1.5 rounded-full
+                tracking-wide transition-all'>
               SIGN UP
             </Link>
-          </>
+          </div>
         )}
       </div>
 
       {/* HERO */}
-      <section className='pt-40 pb-24 px-6 md:px-10 max-w-5xl mx-auto'>
-        <p className='text-[#C9A84C] text-xs tracking-[0.3em] font-semibold mb-4 uppercase'>
+      <motion.p
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+          className='text-[#C9A84C] text-xs tracking-[0.3em] font-semibold mb-4 uppercase'>
           AI-Powered Athletic Rehabilitation
-        </p>
-        <h1 className='font-[Barlow_Condensed] text-6xl md:text-8xl font-extrabold
+        </motion.p>
+        <motion.h1
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: 'easeOut', delay: 0.1 }}
+          className='font-[Barlow_Condensed] text-6xl md:text-8xl font-extrabold
           leading-none mb-6 max-w-3xl'>
           GET BACK TO DOING<br />
           <span className='text-[#C9A84C]'>WHAT YOU LOVE.</span>
-        </h1>
-        <p className='text-[#888] text-lg md:text-xl max-w-xl mb-10 leading-relaxed'>
+        </motion.h1>
+        <motion.p
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: 'easeOut', delay: 0.25 }}
+          className='text-[#888] text-lg md:text-xl max-w-xl mb-10 leading-relaxed'>
           Your personalized rehab plan is waiting. Built on the same science
           that got pro athletes back on the field — now available for everyone.
-        </p>
-        <div className='flex flex-col sm:flex-row gap-4'>
+        </motion.p>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: 'easeOut', delay: 0.4 }}
+          className='flex flex-col sm:flex-row gap-4'>
           {isSubscribed ? (
             <Link href='/dashboard'
               className='inline-block bg-[#C9A84C] hover:bg-[#E8C96A] text-black
@@ -178,27 +198,29 @@ export default function LandingPage() {
               </p>
             </>
           )}
-        </div>
-      </section>
+        </motion.div>
 
       {/* STATS */}
       <section className='px-6 md:px-10 pb-20 max-w-5xl mx-auto'>
-        <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
-          {STATS.map(s => (
-            <div key={s.label}
-              className='bg-[#111] border border-[#1E1E1E] rounded-xl p-5 text-center
-                hover:border-[#C9A84C]/30 transition-all'>
-              <p className='font-[Barlow_Condensed] text-4xl font-bold text-[#C9A84C] mb-1'>
-                {s.value}
-              </p>
-              <p className='text-[#555] text-xs uppercase tracking-wider'>{s.label}</p>
-            </div>
-          ))}
-        </div>
+        <Reveal>
+          <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
+            {STATS.map(s => (
+              <div key={s.label}
+                className='bg-[#111] border border-[#1E1E1E] rounded-xl p-5 text-center
+                  hover:border-[#C9A84C]/30 transition-all'>
+                <p className='font-[Barlow_Condensed] text-4xl font-bold text-[#C9A84C] mb-1'>
+                  {s.value}
+                </p>
+                <p className='text-[#555] text-xs uppercase tracking-wider'>{s.label}</p>
+              </div>
+            ))}
+          </div>
+        </Reveal>
       </section>
 
       {/* BENEFITS */}
       <section className='px-6 md:px-10 pb-24 max-w-5xl mx-auto'>
+         <Reveal>
         <p className='text-[#C9A84C] text-xs tracking-[0.2em] font-semibold mb-3 uppercase'>
           Why Alkeme
         </p>
@@ -237,10 +259,12 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
+         </Reveal>
       </section>
 
       {/* HOW IT WORKS */}
       <section className='px-6 md:px-10 pb-24 max-w-5xl mx-auto border-t border-[#1A1A1A] pt-20'>
+         <Reveal>
         <p className='text-[#C9A84C] text-xs tracking-[0.2em] font-semibold mb-3 uppercase'>
           Simple process
         </p>
@@ -263,10 +287,12 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
+        </Reveal>
       </section>
 
       {/* FEATURES */}
       <section className='px-6 md:px-10 pb-24 max-w-5xl mx-auto'>
+        <Reveal>
         <p className='text-[#C9A84C] text-xs tracking-[0.2em] font-semibold mb-3 uppercase'>
           Built for recovery
         </p>
@@ -286,10 +312,12 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
+        </Reveal>
       </section>
 
       {/* ATHLETES */}
       <section className='px-6 md:px-10 pb-24 max-w-5xl mx-auto border-t border-[#1A1A1A] pt-20'>
+        <Reveal>
         <p className='text-[#444] text-xs tracking-[0.3em] uppercase mb-8 text-center'>
           Trusted by NFL Athletes
         </p>
@@ -329,10 +357,12 @@ export default function LandingPage() {
             ))}
           </div>
         </div>
+        </Reveal>
       </section>
 
       {/* FINAL CTA */}
       <section className='px-6 md:px-10 pb-24 max-w-5xl mx-auto border-t border-[#1A1A1A] pt-20 text-center'>
+        <Reveal>
         <p className='text-[#C9A84C] text-xs tracking-[0.3em] font-semibold mb-4 uppercase'>
           Start today
         </p>
@@ -370,6 +400,7 @@ export default function LandingPage() {
             </p>
           </>
         )}
+        </Reveal>
       </section>
 
       {/* FOOTER */}

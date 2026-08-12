@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { Home, Dumbbell, Video, Apple, LineChart, Play } from 'lucide-react'
+import { Home, Dumbbell, Video, Apple, LineChart, Play, Check } from 'lucide-react'
 import ProgressTab from '../components/ProgressTab'
 
 const TABS = [
@@ -70,6 +70,8 @@ export default function DashboardPage() {
 
   // Tab "Video Library" — filtro por fase
   const [videoPhase, setVideoPhase] = useState('all')
+  // Ejercicios marcados como hechos HOY (para el registro de progreso)
+  const [doneToday, setDoneToday] = useState<Set<string>>(new Set())
 
   const router = useRouter()
 
@@ -151,13 +153,46 @@ export default function DashboardPage() {
       )
 
       setPlanExercises(sorted as PlanExercise[])
+
+      // Cargar qué ejercicios ya marcó hechos hoy
+      const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0)
+      const { data: logs } = await supabase
+        .from('exercise_logs')
+        .select('exercise_id')
+        .eq('user_id', session.user.id)
+        .gte('completed_at', startOfDay.toISOString())
+      setDoneToday(new Set((logs || []).map(l => l.exercise_id as string)))
+
       setPlanState('loaded')
     } catch (e) {
       console.error(e)
       setPlanState('error')
     }
   }
+  async function toggleDone(exerciseId: string) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
 
+    const already = doneToday.has(exerciseId)
+    // Actualizamos la vista de inmediato (sensación instantánea)
+    setDoneToday(prev => {
+      const next = new Set(prev)
+      if (already) next.delete(exerciseId); else next.add(exerciseId)
+      return next
+    })
+
+    if (already) {
+      const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0)
+      await supabase.from('exercise_logs')
+        .delete()
+        .eq('user_id', session.user.id)
+        .eq('exercise_id', exerciseId)
+        .gte('completed_at', startOfDay.toISOString())
+    } else {
+      await supabase.from('exercise_logs')
+        .insert({ user_id: session.user.id, exercise_id: exerciseId })
+    }
+  }
   async function handleLogout() {
     await supabase.auth.signOut()
     router.push('/')
@@ -335,12 +370,28 @@ export default function DashboardPage() {
                           <div className='w-8 h-0.5 bg-[#C9A84C] rounded-full mt-1' />
                         </div>
                         <div className='space-y-2'>
-                          {group.items.map(ex => (
+                          {group.items.map(ex => {
+                            const done = doneToday.has(ex.id)
+                            return (
                             <div key={ex.id}
-                              className='bg-[#111] border border-[#1A1A1A] rounded-xl p-4
-                                flex items-center justify-between gap-3'>
-                              <div className='min-w-0'>
-                                <p className='text-white font-semibold text-sm'>{ex.name}</p>
+                              className={`rounded-xl p-4 flex items-center gap-3 border transition-colors ${
+                                done ? 'bg-[#C9A84C]/10 border-[#C9A84C]/40' : 'bg-[#111] border-[#1A1A1A]'
+                              }`}>
+                              {/* Marcar hecho */}
+                              <button onClick={() => toggleDone(ex.id)} aria-label='Mark done'
+                                className={`shrink-0 w-7 h-7 rounded-full border-2 flex items-center
+                                  justify-center transition-all ${
+                                  done
+                                    ? 'bg-[#C9A84C] border-[#C9A84C] text-black'
+                                    : 'border-[#3A3A3A] text-transparent hover:border-[#C9A84C]'
+                                }`}>
+                                <Check size={16} strokeWidth={3} />
+                              </button>
+
+                              <div className='min-w-0 flex-1'>
+                                <p className={`font-semibold text-sm ${done ? 'text-[#C9A84C]' : 'text-white'}`}>
+                                  {ex.name}
+                                </p>
                                 {ex.target_muscle && (
                                   <p className='text-[#888] text-xs mt-0.5'>{ex.target_muscle}</p>
                                 )}
@@ -358,7 +409,8 @@ export default function DashboardPage() {
                                 </span>
                               )}
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       </div>
                     ))}
