@@ -67,11 +67,17 @@ export default function DashboardPage() {
   const [planExercises, setPlanExercises] = useState<PlanExercise[]>([])
   const [planSummary, setPlanSummary] = useState('')
   const [planArea, setPlanArea] = useState('')
+  // Programa por semanas/días
+  const [programWeeks, setProgramWeeks] = useState<any[]>([])
+  const [activeWeek, setActiveWeek] = useState(1)
 
   // Tab "Video Library" — filtro por fase
   const [videoPhase, setVideoPhase] = useState('all')
   // Ejercicios marcados como hechos HOY (para el registro de progreso)
-  const [doneToday, setDoneToday] = useState<Set<string>>(new Set())
+    const [doneToday, setDoneToday] = useState<Set<string>>(new Set())
+  // Check-in de molestia obligatorio al entrar
+  const [showStartCheckin, setShowStartCheckin] = useState(false)
+  const [checkinBusy, setCheckinBusy] = useState(false)
 
   const router = useRouter()
 
@@ -110,7 +116,7 @@ export default function DashboardPage() {
     }
   }, [ready])
 
-  // Cargar el plan la primera vez que abre el tab "Plan" o "Videos"
+    // Cargar el plan la primera vez que abre el tab "Plan" o "Videos"
   useEffect(() => {
     if ((activeTab === 'plan' || activeTab === 'videos') && planState === 'idle') {
       loadPlan()
@@ -118,16 +124,45 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
+  // Si es usuario activo y aún no hizo el check-in "de entrada" de hoy, mostrar el pop-up
+  useEffect(() => {
+    if (status !== 'active') return
+    async function checkStartCheckin() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const start = new Date(); start.setHours(0, 0, 0, 0)
+      const { data } = await supabase
+        .from('discomfort_logs')
+        .select('id')
+        .eq('user_id', session.user.id)
+        .eq('checkpoint', 'start')
+        .gte('logged_at', start.toISOString())
+        .limit(1)
+      if (!data || data.length === 0) setShowStartCheckin(true)
+    }
+    checkStartCheckin()
+  }, [status])
+
+    async function submitStartCheckin(level: number) {
+    setCheckinBusy(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) { setCheckinBusy(false); return }
+    await supabase
+      .from('discomfort_logs')
+      .insert({ user_id: session.user.id, level, checkpoint: 'start' })
+    setCheckinBusy(false)
+    setShowStartCheckin(false)
+  }  
   async function loadPlan() {
     setPlanState('loading')
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { setPlanState('empty'); return }
 
-      // 1. El plan guardado del usuario
+      // 1. El plan guardado (ahora también trae 'program')
       const { data: plan, error: planErr } = await supabase
         .from('recovery_plans')
-        .select('area, summary, exercise_ids')
+        .select('area, summary, exercise_ids, program')
         .eq('user_id', session.user.id)
         .maybeSingle()
 
@@ -139,7 +174,7 @@ export default function DashboardPage() {
       setPlanSummary(plan.summary || '')
       setPlanArea(plan.area || '')
 
-      // 2. Traer esos ejercicios de la biblioteca
+      // 2. Traer los ejercicios del plan
       const { data: exercises, error: exErr } = await supabase
         .from('exercises')
         .select('id, name, phase, target_muscle, youtube_url')
@@ -147,14 +182,30 @@ export default function DashboardPage() {
 
       if (exErr) { console.error('Exercises error:', exErr.message); setPlanState('error'); return }
 
-      // 3. Ordenar por fase progresiva
       const sorted = [...(exercises || [])].sort(
         (a, b) => (PHASE_ORDER[a.phase || ''] || 99) - (PHASE_ORDER[b.phase || ''] || 99)
       )
-
       setPlanExercises(sorted as PlanExercise[])
 
-      // Cargar qué ejercicios ya marcó hechos hoy
+      // 3. Construir el programa por semanas/días con los ejercicios completos
+      const byId = new Map(sorted.map(e => [e.id, e]))
+      const rawProgram: any[] = Array.isArray(plan.program) ? plan.program : []
+      const weeks = rawProgram
+        .map((w: any) => ({
+          week: Number(w.week),
+          focus: typeof w.focus === 'string' ? w.focus : '',
+          days: (Array.isArray(w.days) ? w.days : []).map((d: any) => ({
+            day: Number(d.day),
+            exercises: (Array.isArray(d.exerciseIds) ? d.exerciseIds : [])
+              .map((id: string) => byId.get(id))
+              .filter(Boolean)
+          }))
+        }))
+        .filter((w: any) => w.days.length > 0)
+        .sort((a: any, b: any) => a.week - b.week)
+      setProgramWeeks(weeks)
+
+      // 4. Ejercicios marcados hoy
       const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0)
       const { data: logs } = await supabase
         .from('exercise_logs')
@@ -162,6 +213,15 @@ export default function DashboardPage() {
         .eq('user_id', session.user.id)
         .gte('completed_at', startOfDay.toISOString())
       setDoneToday(new Set((logs || []).map(l => l.exercise_id as string)))
+
+      // 5. Estimar en qué semana va el usuario (por días activos)
+      const { data: allLogs } = await supabase
+        .from('exercise_logs')
+        .select('completed_at')
+        .eq('user_id', session.user.id)
+      const activeDays = new Set((allLogs || []).map(l => (l.completed_at as string).slice(0, 10))).size
+      const totalWeeks = weeks.length || 1
+      setActiveWeek(Math.min(totalWeeks, Math.floor(activeDays / 3) + 1))
 
       setPlanState('loaded')
     } catch (e) {
@@ -216,8 +276,35 @@ export default function DashboardPage() {
     ? planExercises
     : planExercises.filter(e => (e.phase || 'Additional Exercises') === videoPhase)
 
-  return (
+    return (
     <div className='min-h-screen bg-[#0A0A0A]'>
+
+      {/* Check-in obligatorio de entrada — no se puede cerrar sin responder */}
+      {showStartCheckin && (
+        <div className='fixed inset-0 z-[9999] bg-black/85 backdrop-blur-sm flex items-center justify-center px-6'>
+          <div className='bg-[#111] border border-[#2A2A2A] rounded-2xl p-6 max-w-sm w-full'>
+            <p className='text-[#C9A84C] text-xs tracking-[0.3em] uppercase font-semibold mb-2'>
+              Daily check-in
+            </p>
+            <h2 className='font-[Barlow_Condensed] text-3xl font-bold text-white mb-1'>
+              HOW DO YOU FEEL RIGHT NOW?
+            </h2>
+            <p className='text-[#888] text-sm mb-5'>
+              A quick check before you start. 0 = no discomfort · 10 = worst.
+            </p>
+            <div className='flex flex-wrap gap-2 justify-center'>
+              {Array.from({ length: 11 }, (_, n) => n).map(n => (
+                <button key={n} onClick={() => submitStartCheckin(n)} disabled={checkinBusy}
+                  className='w-10 h-10 rounded-lg text-sm font-bold bg-[#1A1A1A] border border-[#2A2A2A]
+                    text-white hover:bg-[#C9A84C] hover:text-black hover:border-[#C9A84C]
+                    transition-colors disabled:opacity-40'>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Splash de inicio — logo Alkeme sobre fondo negro, se desvanece solo */}
       {!splashGone && (
@@ -350,70 +437,148 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {planState === 'loaded' && (
+                                {planState === 'loaded' && (
                   <>
                     {planSummary && (
                       <p className='text-[#A0A0A0] text-sm leading-relaxed mb-4 max-w-xl'>
                         {planSummary}
                       </p>
                     )}
-                    <p className='text-[#555] text-xs uppercase tracking-wider mb-8'>
-                      {planExercises.length} exercises · {withVideo} with video
-                    </p>
 
-                    {phaseGroups.map(group => (
-                      <div key={group.phase} className='mb-8'>
-                        <div className='mb-3'>
-                          <h3 className='font-[Barlow_Condensed] text-2xl font-bold text-white'>
-                            {group.phase}
-                          </h3>
-                          <div className='w-8 h-0.5 bg-[#C9A84C] rounded-full mt-1' />
-                        </div>
-                        <div className='space-y-2'>
-                          {group.items.map(ex => {
-                            const done = doneToday.has(ex.id)
-                            return (
-                            <div key={ex.id}
-                              className={`rounded-xl p-4 flex items-center gap-3 border transition-colors ${
-                                done ? 'bg-[#C9A84C]/10 border-[#C9A84C]/40' : 'bg-[#111] border-[#1A1A1A]'
+                    {programWeeks.length > 0 ? (
+                      <>
+                        {/* Pestañas de semana */}
+                        <div className='flex gap-2 overflow-x-auto pb-2 mb-6 px-0.5'>
+                          {programWeeks.map(w => (
+                            <button key={w.week} onClick={() => setActiveWeek(w.week)}
+                              className={`shrink-0 px-4 py-2 rounded-full text-sm font-bold
+                                font-[Barlow_Condensed] tracking-wide transition-colors ${
+                                activeWeek === w.week
+                                  ? 'bg-[#C9A84C] text-black'
+                                  : 'bg-[#141414] border border-[#2A2A2A] text-[#999] hover:text-white'
                               }`}>
-                              {/* Marcar hecho */}
-                              <button onClick={() => toggleDone(ex.id)} aria-label='Mark done'
-                                className={`shrink-0 w-7 h-7 rounded-full border-2 flex items-center
-                                  justify-center transition-all ${
-                                  done
-                                    ? 'bg-[#C9A84C] border-[#C9A84C] text-black'
-                                    : 'border-[#3A3A3A] text-transparent hover:border-[#C9A84C]'
-                                }`}>
-                                <Check size={16} strokeWidth={3} />
-                              </button>
-
-                              <div className='min-w-0 flex-1'>
-                                <p className={`font-semibold text-sm ${done ? 'text-[#C9A84C]' : 'text-white'}`}>
-                                  {ex.name}
-                                </p>
-                                {ex.target_muscle && (
-                                  <p className='text-[#888] text-xs mt-0.5'>{ex.target_muscle}</p>
-                                )}
-                              </div>
-                              {ex.youtube_url ? (
-                                <a href={ex.youtube_url} target='_blank' rel='noopener noreferrer'
-                                  className='shrink-0 bg-[#C9A84C] hover:bg-[#E8C96A] text-black
-                                    text-xs font-bold px-3 py-2 rounded-lg transition-colors
-                                    whitespace-nowrap'>
-                                  Watch video
-                                </a>
-                              ) : (
-                                <span className='shrink-0 text-[#555] text-xs italic whitespace-nowrap'>
-                                  Video coming soon
-                                </span>
-                              )}
-                            </div>
-                            )
-                          })}
+                              WEEK {w.week}
+                            </button>
+                          ))}
                         </div>
-                      </div>
-                    ))}
+
+                        {programWeeks.filter(w => w.week === activeWeek).map(w => (
+                          <div key={w.week}>
+                            {w.focus && (
+                              <p className='text-[#C9A84C] text-xs tracking-[0.2em] uppercase mb-6'>
+                                {w.focus}
+                              </p>
+                            )}
+                            {w.days.map((d: any) => (
+                              <div key={d.day} className='mb-8'>
+                                <div className='mb-3'>
+                                  <h3 className='font-[Barlow_Condensed] text-2xl font-bold text-white'>
+                                    Day {d.day}
+                                  </h3>
+                                  <div className='w-8 h-0.5 bg-[#C9A84C] rounded-full mt-1' />
+                                </div>
+                                <div className='space-y-2'>
+                                  {d.exercises.map((ex: any) => {
+                                    const done = doneToday.has(ex.id)
+                                    return (
+                                    <div key={ex.id + '-' + d.day}
+                                      className={`rounded-xl p-4 flex items-center gap-3 border transition-colors ${
+                                        done ? 'bg-[#C9A84C]/10 border-[#C9A84C]/40' : 'bg-[#111] border-[#1A1A1A]'
+                                      }`}>
+                                      <button onClick={() => toggleDone(ex.id)} aria-label='Mark done'
+                                        className={`shrink-0 w-7 h-7 rounded-full border-2 flex items-center
+                                          justify-center transition-all ${
+                                          done
+                                            ? 'bg-[#C9A84C] border-[#C9A84C] text-black'
+                                            : 'border-[#3A3A3A] text-transparent hover:border-[#C9A84C]'
+                                        }`}>
+                                        <Check size={16} strokeWidth={3} />
+                                      </button>
+                                      <div className='min-w-0 flex-1'>
+                                        <p className={`font-semibold text-sm ${done ? 'text-[#C9A84C]' : 'text-white'}`}>
+                                          {ex.name}
+                                        </p>
+                                        {ex.target_muscle && (
+                                          <p className='text-[#888] text-xs mt-0.5'>{ex.target_muscle}</p>
+                                        )}
+                                      </div>
+                                      {ex.youtube_url ? (
+                                        <a href={ex.youtube_url} target='_blank' rel='noopener noreferrer'
+                                          className='shrink-0 bg-[#C9A84C] hover:bg-[#E8C96A] text-black
+                                            text-xs font-bold px-3 py-2 rounded-lg transition-colors whitespace-nowrap'>
+                                          Watch video
+                                        </a>
+                                      ) : (
+                                        <span className='shrink-0 text-[#555] text-xs italic whitespace-nowrap'>
+                                          Video coming soon
+                                        </span>
+                                      )}
+                                    </div>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <p className='text-[#555] text-xs uppercase tracking-wider mb-8'>
+                          {planExercises.length} exercises · {withVideo} with video
+                        </p>
+                        {phaseGroups.map(group => (
+                          <div key={group.phase} className='mb-8'>
+                            <div className='mb-3'>
+                              <h3 className='font-[Barlow_Condensed] text-2xl font-bold text-white'>
+                                {group.phase}
+                              </h3>
+                              <div className='w-8 h-0.5 bg-[#C9A84C] rounded-full mt-1' />
+                            </div>
+                            <div className='space-y-2'>
+                              {group.items.map(ex => {
+                                const done = doneToday.has(ex.id)
+                                return (
+                                <div key={ex.id}
+                                  className={`rounded-xl p-4 flex items-center gap-3 border transition-colors ${
+                                    done ? 'bg-[#C9A84C]/10 border-[#C9A84C]/40' : 'bg-[#111] border-[#1A1A1A]'
+                                  }`}>
+                                  <button onClick={() => toggleDone(ex.id)} aria-label='Mark done'
+                                    className={`shrink-0 w-7 h-7 rounded-full border-2 flex items-center
+                                      justify-center transition-all ${
+                                      done
+                                        ? 'bg-[#C9A84C] border-[#C9A84C] text-black'
+                                        : 'border-[#3A3A3A] text-transparent hover:border-[#C9A84C]'
+                                    }`}>
+                                    <Check size={16} strokeWidth={3} />
+                                  </button>
+                                  <div className='min-w-0 flex-1'>
+                                    <p className={`font-semibold text-sm ${done ? 'text-[#C9A84C]' : 'text-white'}`}>
+                                      {ex.name}
+                                    </p>
+                                    {ex.target_muscle && (
+                                      <p className='text-[#888] text-xs mt-0.5'>{ex.target_muscle}</p>
+                                    )}
+                                  </div>
+                                  {ex.youtube_url ? (
+                                    <a href={ex.youtube_url} target='_blank' rel='noopener noreferrer'
+                                      className='shrink-0 bg-[#C9A84C] hover:bg-[#E8C96A] text-black
+                                        text-xs font-bold px-3 py-2 rounded-lg transition-colors whitespace-nowrap'>
+                                      Watch video
+                                    </a>
+                                  ) : (
+                                    <span className='shrink-0 text-[#555] text-xs italic whitespace-nowrap'>
+                                      Video coming soon
+                                    </span>
+                                  )}
+                                </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </>
                 )}
               </>

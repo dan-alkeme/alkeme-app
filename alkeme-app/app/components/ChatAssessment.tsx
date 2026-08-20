@@ -128,6 +128,7 @@ async function handleSubscribe(priceId: string | undefined) {
         goal: goal,
         summary: planData.summary,
         exercise_ids: planData.exerciseIds || [],
+        program: planData.program || null,
         updated_at: new Date().toISOString()
       }, { onConflict: 'user_id' })
 
