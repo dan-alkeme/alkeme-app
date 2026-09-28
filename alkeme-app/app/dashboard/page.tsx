@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { Home, Dumbbell, Video, Apple, LineChart, Play, Check } from 'lucide-react'
 import ProgressTab from '../components/ProgressTab'
+import NutritionTab from '../components/NutritionTab'
 
 const TABS = [
   { id: 'home',      label: 'Home',      title: 'Welcome Back',       tagline: '',                                    Icon: Home },
@@ -716,8 +717,11 @@ export default function DashboardPage() {
             ) : activeTab === 'progress' ? (
               /* ===== PROGRESS ===== */
               <ProgressTab />
+                        ) : activeTab === 'nutrition' ? (
+              /* ===== NUTRITION ===== */
+              <NutritionTab />
             ) : (
-              /* ===== NUTRITION — placeholder ===== */
+              /* ===== fallback ===== */
               <div className='min-h-[55vh] flex flex-col items-center justify-center text-center'>
                 <p className='text-[#C9A84C] text-xs tracking-[0.3em] font-semibold mb-3 uppercase'>
                   {current.label}
