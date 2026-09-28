@@ -1,7 +1,7 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Flame, Activity, Calendar, TrendingDown, TrendingUp } from 'lucide-react'
+import { Flame, Activity, Calendar, TrendingDown, TrendingUp, Download } from 'lucide-react'
 
 const PHASE_ORDER: Record<string, number> = {
   'Joint Mobility': 1,
@@ -39,6 +39,8 @@ function computeStreak(dates: Set<string>): number {
   return streak
 }
 
+type DiscomfortRow = { logged_at: string; level: number; checkpoint: string | null }
+
 export default function ProgressTab() {
   const [loading, setLoading] = useState(true)
   const [overall, setOverall] = useState(0)
@@ -48,14 +50,12 @@ export default function ProgressTab() {
   const [weekDays, setWeekDays] = useState<{ letter: string; active: boolean }[]>([])
   const [phaseProgress, setPhaseProgress] = useState<{ phase: string; pct: number }[]>([])
   const [pain, setPain] = useState<{ level: number; label: string }[]>([])
-  // Check-in de salida
   const [hasActivityToday, setHasActivityToday] = useState(false)
   const [endDone, setEndDone] = useState(false)
   const [endLevel, setEndLevel] = useState<number | null>(null)
+  const [discomfortAll, setDiscomfortAll] = useState<DiscomfortRow[]>([])
 
-  useEffect(() => { loadProgress() }, [])
-
-  async function loadProgress() {
+  const loadProgress = useCallback(async () => {
     setLoading(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -71,7 +71,7 @@ export default function ProgressTab() {
       if (planIds.length) {
         const { data: exs } = await supabase
           .from('exercises').select('id, phase').in('id', planIds)
-        planExercises = (exs || []) as any
+        planExercises = (exs || []) as { id: string; phase: string | null }[]
       }
 
       const { data: logs } = await supabase
@@ -81,9 +81,9 @@ export default function ProgressTab() {
       const { data: dlogs } = await supabase
         .from('discomfort_logs').select('level, logged_at, checkpoint')
         .eq('user_id', uid).order('logged_at', { ascending: true })
-      const discomfort = dlogs || []
+      const discomfort = (dlogs || []) as DiscomfortRow[]
+      setDiscomfortAll(discomfort)
 
-      // === Cálculos con datos reales ===
       const now = new Date()
       const todayStr = dateKey(now)
       const dateSet = new Set(logRows.map(l => dateKey(new Date(l.completed_at as string))))
@@ -126,40 +126,67 @@ export default function ProgressTab() {
           .sort((a, b) => (PHASE_ORDER[a.phase] || 99) - (PHASE_ORDER[b.phase] || 99))
       )
 
-      // Gráfico: últimos 10 check-ins
       setPain(
         discomfort.slice(-10).map(d => ({
-          level: d.level as number,
-          label: shortDate(d.logged_at as string)
+          level: d.level,
+          label: shortDate(d.logged_at)
         }))
       )
 
-      // Check-in de salida: ¿hubo actividad hoy? ¿ya respondió el 'end' de hoy?
       const activityToday = logRows.some(l => dateKey(new Date(l.completed_at as string)) === todayStr)
       setHasActivityToday(activityToday)
       const endLog = discomfort.find(
-        d => (d as any).checkpoint === 'end' && dateKey(new Date(d.logged_at as string)) === todayStr
+        d => d.checkpoint === 'end' && dateKey(new Date(d.logged_at)) === todayStr
       )
       setEndDone(!!endLog)
-      setEndLevel(endLog ? (endLog.level as number) : null)
+      setEndLevel(endLog ? endLog.level : null)
 
       setLoading(false)
     } catch (e) {
       console.error('Progress load error:', e)
       setLoading(false)
     }
-  }
+  }, [])
+
+    useEffect(() => {
+    void loadProgress()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+  }, [loadProgress])
 
   async function submitEndCheckin(level: number) {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) return
-    setEndDone(true)      // bloquea de inmediato
+    setEndDone(true)
     setEndLevel(level)
     const { error } = await supabase
       .from('discomfort_logs')
       .insert({ user_id: session.user.id, level, checkpoint: 'end' })
     if (error) { console.error('Discomfort save error:', error.message); return }
     setPain(prev => [...prev, { level, label: shortDate(new Date().toISOString()) }].slice(-10))
+    setDiscomfortAll(prev => [...prev, { logged_at: new Date().toISOString(), level, checkpoint: 'end' }])
+  }
+
+  function downloadCSV() {
+    if (discomfortAll.length === 0) return
+    const rows: string[][] = [['Date', 'Time', 'Discomfort (0-10)', 'Check-in']]
+    for (const d of discomfortAll) {
+      const dt = new Date(d.logged_at)
+      const time = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+      const cp = d.checkpoint === 'start' ? 'Start' : d.checkpoint === 'end' ? 'End' : ''
+      rows.push([dateKey(dt), time, String(d.level), cp])
+    }
+    const csv = rows
+      .map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `alkeme-discomfort-history-${dateKey(new Date())}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   const activeThisWeek = weekDays.filter(d => d.active).length
@@ -194,7 +221,7 @@ export default function ProgressTab() {
         </h1>
       </div>
 
-      {/* Check-in de salida — se habilita tras actividad, se bloquea al responder */}
+      {/* Check-in de salida */}
       <div className='bg-[#111] border border-[#1A1A1A] rounded-2xl p-5'>
         <h3 className='font-[Barlow_Condensed] text-lg font-bold text-white'>
           End-of-session check-in
@@ -372,6 +399,15 @@ export default function ProgressTab() {
             </p>
           </>
         )}
+
+        {/* Descargar historial completo */}
+        <button onClick={downloadCSV} disabled={discomfortAll.length === 0}
+          className='mt-4 w-full flex items-center justify-center gap-2 py-2.5 rounded-lg
+            border border-[#2A2A2A] text-[#C9A84C] text-xs font-semibold
+            hover:bg-[#C9A84C]/10 transition-colors disabled:opacity-30 disabled:hover:bg-transparent'>
+          <Download size={14} />
+          Download history (CSV)
+        </button>
       </div>
     </div>
   )
